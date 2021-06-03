@@ -1,13 +1,11 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity ^0.6.0;
-import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {EIP712MetaTransaction} from "./EIP712MetaTransaction.sol";
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 contract Pay is Ownable, EIP712MetaTransaction("Pay", "2")  {
-  using SafeMath for uint256;
   uint public fee;
   address public token;
   uint public minAmount = 10 ** 18;
@@ -61,7 +59,7 @@ contract Pay is Ownable, EIP712MetaTransaction("Pay", "2")  {
     IERC20(_tokens[0]).transferFrom(msgSender(), address(this), amounts[0]);
     IERC20(_tokens[0]).approve(swap, amounts[0]);
     uint[] memory _amounts = IUniswapV2Router02(swap).swapTokensForExactTokens(amount, max, _tokens, address(this), deadline);
-    _pay(to,_amounts[_amounts.length - 1], ref, _tokens[0]) ;
+    _pay(to,_amounts[_amounts.length - 1], ref, _tokens[0]);
   }
 
   function pay(address to, uint amount, string memory ref) public {
