@@ -3,42 +3,84 @@ pragma solidity ^0.6.0;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {EIP712MetaTransaction} from "./EIP712MetaTransaction.sol";
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
-contract Pay is Ownable, EIP712MetaTransaction("Pay", "1")  {
-  uint256 fee;
-  mapping(address => bool) public tokens;
-  mapping(address => uint256) public minAmounts;
-  mapping(address => uint256) public minFees;
+contract Pay is Ownable, EIP712MetaTransaction("Pay", "2")  {
+  uint public fee;
+  address public token;
+  uint public minAmount = 10 ** 18;
+  uint public minFee = 10 ** 18;
   
-  event Payment(address indexed from, address indexed to, address indexed token, uint256 amount, uint256 fee, string ref);
+  event Payment(address indexed from, address indexed to, address indexed token, uint amount, uint fee, string ref);
   
-  constructor(uint256 _fee) public {
+  constructor(uint _fee, address _token) public {
     require(_fee <= 10000, "fee must be less than or equal to 10000");
     fee = _fee;
+    token = _token;
+  }
+  
+  function getAmountsOut(uint _value, address[] memory path, address _swap)
+    internal
+    view
+    returns (uint[] memory)
+  {
+    return IUniswapV2Router02(_swap).getAmountsOut(_value, path);
+  }
+  
+  function getAmountsIn(uint _value, address[] memory path, address _swap)
+    internal
+    view
+    returns (uint[] memory)
+  {
+    return IUniswapV2Router02(_swap).getAmountsIn(_value, path);
   }
 
-  function payERC20(address to, address token, uint256 amount, string memory ref) public {
-    require(tokens[token] == true, "token not allowed");
-    require(minAmounts[token] <= amount, "amount too small");
-    uint256 tx_fee = amount.mul(fee).div(10000);
-    if(tx_fee < minFees[token]) tx_fee = minFees[token];
+
+  function _pay(address to, uint amount, string memory ref, address _token) public {
+    uint tx_fee = amount.mul(fee).div(10000);
+    if(tx_fee < minFee) tx_fee = minFee;
+    IERC20(token).transfer(owner(), tx_fee);
+    IERC20(token).transfer(to, amount.sub(tx_fee));
+    emit Payment(msgSender(), to, _token, amount, tx_fee, ref);
+  }
+  
+  function swapAndPayExactIn(address to, address[] memory _tokens, uint amount, string memory ref, uint min, uint deadline, address swap) public {
+    uint[] memory amounts = getAmountsOut(amount, _tokens, swap);
+    require(minAmount <= amounts[amounts.length - 1], "amount too small");
+    IERC20(_tokens[0]).transferFrom(msgSender(), address(this), amounts[0]);
+    IERC20(_tokens[0]).approve(swap, amounts[0]);
+    uint[] memory _amounts = IUniswapV2Router02(swap).swapExactTokensForTokens(amounts[0], min, _tokens, address(this), deadline);
+    _pay(to,_amounts[_amounts.length - 1], ref, _tokens[0]);
+  }
+
+  function swapAndPayExactOut(address to, address[] memory _tokens, uint amount, string memory ref, uint max, uint deadline, address swap) public {
+    uint[] memory amounts = getAmountsIn(amount, _tokens, swap);
+    require(minAmount <= amounts[amounts.length - 1], "amount too small");
+    IERC20(_tokens[0]).transferFrom(msgSender(), address(this), amounts[0]);
+    IERC20(_tokens[0]).approve(swap, amounts[0]);
+    uint[] memory _amounts = IUniswapV2Router02(swap).swapTokensForExactTokens(amount, max, _tokens, address(this), deadline);
+    _pay(to,_amounts[_amounts.length - 1], ref, _tokens[0]);
+  }
+
+  function pay(address to, uint amount, string memory ref) public {
+    require(minAmount <= amount, "amount too small");
+    uint tx_fee = amount.mul(fee).div(10000);
+    if(tx_fee < minFee) tx_fee = minFee;
     IERC20(token).transferFrom(msgSender(), owner(), tx_fee);
     IERC20(token).transferFrom(msgSender(), to, amount.sub(tx_fee));
     emit Payment(msgSender(), to, token, amount, tx_fee, ref);
   }
   
-  function setFee(uint256 _fee) public onlyOwner {
+  function setFee(uint _fee) public onlyOwner {
     fee = _fee;
   }
   
-  function addToken(address _token, uint256 _amount, uint256 _fee) public onlyOwner {
-    require(_amount >= _fee, "minAmount must be greater than or equal to minFee");
-    tokens[_token] = true;
-    minAmounts[_token] = _amount;
-    minFees[_token] = _fee;
+  function setMinAmount(uint _min) public onlyOwner {
+    minAmount = _min;
   }
   
-  function removeToken(address _token) public onlyOwner {
-    tokens[_token] = false;
+  function setMinFee(uint _fee) public onlyOwner {
+    minFee = _fee;
   }
+  
 }
