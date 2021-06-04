@@ -8,10 +8,11 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
 contract Pay is Ownable, EIP712MetaTransaction("Pay", "2")  {
   uint public fee;
   address public token;
+  mapping(address => bool) public exchanges; 
   uint public minAmount = 10 ** 18;
   uint public minFee = 10 ** 18;
   
-  event Payment(address indexed from, address indexed to, address indexed token, uint amount, uint fee, string ref);
+  event Payment(address indexed from, address indexed to, address indexed from_token, address to_token, uint from_amount, uint to_amount, uint fee, string ref);
   
   constructor(uint _fee, address _token) public {
     require(_fee <= 10000, "fee must be less than or equal to 10000");
@@ -35,12 +36,12 @@ contract Pay is Ownable, EIP712MetaTransaction("Pay", "2")  {
     return IUniswapV2Router02(_swap).getAmountsIn(_value, path);
   }
 
-  function _pay(address to, uint amount, string memory ref, address _token) internal {
+  function _pay(address to, uint amount, uint from_amount, string memory ref, address _token) internal {
     uint tx_fee = amount.mul(fee).div(10000);
     if(tx_fee < minFee) tx_fee = minFee;
     IERC20(token).transfer(owner(), tx_fee);
     IERC20(token).transfer(to, amount.sub(tx_fee));
-    emit Payment(msgSender(), to, _token, amount, tx_fee, ref);
+    emit Payment(msgSender(), to, _token, token, from_amount, amount, tx_fee, ref);
   }
   
   function pay(address to, uint amount, string memory ref) public {
@@ -49,31 +50,41 @@ contract Pay is Ownable, EIP712MetaTransaction("Pay", "2")  {
     if(tx_fee < minFee) tx_fee = minFee;
     IERC20(token).transferFrom(msgSender(), owner(), tx_fee);
     IERC20(token).transferFrom(msgSender(), to, amount.sub(tx_fee));
-    emit Payment(msgSender(), to, token, amount, tx_fee, ref);
+    emit Payment(msgSender(), to, token, token, amount, amount, tx_fee, ref);
   }
   
   function swapAndPayExactIn(address to, address[] memory _tokens, uint amount, string memory ref, uint min, uint deadline, address swap) public {
+    require(exchanges[swap] == true, "exchange not allowed");
     require(_tokens[_tokens.length - 1] == token, "last token must be JPYC");
     uint[] memory amounts = getAmountsOut(amount, _tokens, swap);
     require(minAmount <= amounts[amounts.length - 1], "amount too small");
     IERC20(_tokens[0]).transferFrom(msgSender(), address(this), amounts[0]);
     IERC20(_tokens[0]).approve(swap, amounts[0]);
     uint[] memory _amounts = IUniswapV2Router02(swap).swapExactTokensForTokens(amounts[0], min, _tokens, address(this), deadline);
-    _pay(to,_amounts[_amounts.length - 1], ref, _tokens[0]);
+    _pay(to,_amounts[_amounts.length - 1], _amounts[0], ref, _tokens[0]);
   }
 
   function swapAndPayExactOut(address to, address[] memory _tokens, uint amount, string memory ref, uint max, uint deadline, address swap) public {
+    require(exchanges[swap] == true, "exchange not allowed");
     require(_tokens[_tokens.length - 1] == token, "last token must be JPYC");
     uint[] memory amounts = getAmountsIn(amount, _tokens, swap);
     require(minAmount <= amounts[amounts.length - 1], "amount too small");
     IERC20(_tokens[0]).transferFrom(msgSender(), address(this), amounts[0]);
     IERC20(_tokens[0]).approve(swap, amounts[0]);
     uint[] memory _amounts = IUniswapV2Router02(swap).swapTokensForExactTokens(amount, max, _tokens, address(this), deadline);
-    _pay(to,_amounts[_amounts.length - 1], ref, _tokens[0]);
+    _pay(to,_amounts[_amounts.length - 1], _amounts[0], ref, _tokens[0]);
   }
 
   function setFee(uint _fee) public onlyOwner {
     fee = _fee;
+  }
+  
+  function addExchange(address _address) public onlyOwner {
+    exchanges[_address] = true;
+  }
+  
+  function removeExchange(address _address) public onlyOwner {
+    exchanges[_address] = false;
   }
   
   function setMinAmount(uint _min) public onlyOwner {
