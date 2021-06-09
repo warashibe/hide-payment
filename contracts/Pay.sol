@@ -4,6 +4,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {EIP712MetaTransaction} from "./EIP712MetaTransaction.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import "hardhat/console.sol";
 
 contract Pay is Ownable, EIP712MetaTransaction("Pay", "2")  {
   uint public fee;
@@ -75,6 +76,30 @@ contract Pay is Ownable, EIP712MetaTransaction("Pay", "2")  {
     _pay(to,_amounts[_amounts.length - 1], _amounts[0], ref, _tokens[0]);
   }
 
+  function swapAndPayExactInETH(address to, address[] memory _tokens, string memory ref, uint min, uint deadline, address swap) public payable{
+    require(exchanges[swap] == true, "exchange not allowed");
+    require(_tokens[_tokens.length - 1] == token, "last token must be JPYC");
+    uint[] memory amounts = getAmountsOut(msg.value, _tokens, swap);
+    require(minAmount <= amounts[amounts.length - 1], "amount too small");
+    require(msg.value >= amounts[0], "msg.value too small");
+    uint[] memory _amounts = IUniswapV2Router02(swap).swapExactETHForTokens{value:amounts[0]}( min, _tokens, address(this), deadline);
+    uint diff = msg.value - amounts[0];
+    if(diff > 0) msg.sender.transfer(diff);
+    _pay(to,_amounts[_amounts.length - 1], _amounts[0], ref, _tokens[0]);
+  }
+
+  function swapAndPayExactOutETH(address to, address[] memory _tokens, uint amount, string memory ref, uint deadline, address swap) public payable{
+    require(exchanges[swap] == true, "exchange not allowed");
+    require(_tokens[_tokens.length - 1] == token, "last token must be JPYC");
+    uint[] memory amounts = getAmountsIn(amount, _tokens, swap);
+    require(minAmount <= amounts[amounts.length - 1], "amount too small");
+    require(msg.value >= amounts[0], "msg.value too small");
+    uint[] memory _amounts = IUniswapV2Router02(swap).swapETHForExactTokens{value:amounts[0]}(amounts[1], _tokens, address(this), deadline);
+    uint diff = msg.value - amounts[0];
+    if(diff > 0) msg.sender.transfer(diff);
+    _pay(to,_amounts[_amounts.length - 1], _amounts[0], ref, _tokens[0]);
+  }
+  
   function setFee(uint _fee) public onlyOwner {
     fee = _fee;
   }
