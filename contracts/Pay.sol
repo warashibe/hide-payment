@@ -1,15 +1,17 @@
-//SPDX-License-Identifier: Unlicense
+//SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {EIP712MetaTransaction} from "./EIP712MetaTransaction.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import {Config} from "./Config.sol";
 
-contract Pay is Ownable, EIP712MetaTransaction("Pay", "4")  {
+contract Pay is Ownable, EIP712MetaTransaction("Pay", "5")  {
   address public token;
   address public payback_token;
   address public payback_owner;
-
+  address public config;
+  
   uint public minAmount = 10 ** 18;
   uint public minPayback = 10 ** 18;
   uint public minFee = 10 ** 18;
@@ -19,12 +21,13 @@ contract Pay is Ownable, EIP712MetaTransaction("Pay", "4")  {
   
   event Payment(address indexed from, address indexed to, address indexed from_token, address to_token, uint from_amount, uint to_amount, uint fee, string ref, uint payback);
   
-  constructor(uint _fee, address _token, address _payback_token, address _payback_owner) public {
+  constructor(uint _fee, address _token, address _payback_token, address _payback_owner, address _config) public {
     require(_fee <= 10000, "fee must be less than or equal to 10000");
     fee = _fee;
     token = _token;
     payback_token = _payback_token;
     payback_owner = _payback_owner;
+    config = _config;
   }
   
   function getAmountsOut(uint _value, address[] memory path, address _swap)
@@ -63,6 +66,7 @@ contract Pay is Ownable, EIP712MetaTransaction("Pay", "4")  {
     IERC20(token).transfer(owner(), tx_fee);
     IERC20(token).transfer(to, amount.sub(tx_fee));
     emit Payment(msgSender(), to, _token, token, from_amount, amount, tx_fee, ref, payback_amount);
+    Config(config).recordWP(msgSender(), to, payback_amount);
     _payback(payback_amount);
   }
 
@@ -92,6 +96,7 @@ contract Pay is Ownable, EIP712MetaTransaction("Pay", "4")  {
     IERC20(token).transferFrom(msgSender(), owner(), tx_fee);
     IERC20(token).transferFrom(msgSender(), to, amount.sub(tx_fee));
     emit Payment(msgSender(), to, token, token, amount, amount, tx_fee, ref, payback_amount);
+    Config(config).recordWP(msgSender(), to, payback_amount);
     _payback(payback_amount);
   }
   
@@ -124,7 +129,7 @@ contract Pay is Ownable, EIP712MetaTransaction("Pay", "4")  {
     _checkParams(_tokens, swap);
     uint[] memory amounts = getAmountsIn(amount, _tokens, swap);
     _checkAmountsETH(amounts);
-    uint[] memory _amounts = IUniswapV2Router02(swap).swapETHForExactTokens{value:amounts[0]}(amounts[1], _tokens, address(this), deadline);
+    uint[] memory _amounts = IUniswapV2Router02(swap).swapETHForExactTokens{value:amounts[0]}(amounts[amounts.length - 1], _tokens, address(this), deadline);
     _sendBackDiff(_amounts);
     _pay(to,_amounts[_amounts.length - 1], _amounts[0], ref, _tokens[0], payback);
   }
