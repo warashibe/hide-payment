@@ -1,21 +1,38 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
-contract Config is Ownable  {
+import "@openzeppelin/contracts/access/AccessControl.sol";
+contract Config is AccessControl, Ownable  {
+  bytes32 public constant EDITOR_ROLE = keccak256("EDITOR_ROLE");
   uint public totalWP;
   mapping(address => uint) public earnings;
   mapping(address => uint) public paybacks;
   
-  constructor() public {}
+  constructor() public {
+    _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    _setupRole(EDITOR_ROLE, _msgSender());
+  }
 
-  function recordWP(address from, address to, uint amount) external {
+  modifier onlyEditor() {
+    require(hasRole(EDITOR_ROLE,msg.sender), "only EDITOR can execute");
+    _;
+  }
+
+  function addEditor(address _editor) public onlyOwner {
+    grantRole(EDITOR_ROLE, _editor);
+  }
+
+  function removeEditor(address _editor) public onlyOwner {
+    revokeRole(EDITOR_ROLE, _editor);
+  }
+  
+  function recordWP(address from, address to, uint amount) external onlyEditor{
     earnings[from] += amount;
     paybacks[to] += amount;
     totalWP += amount;
   }
 
-  function setTotalWP(uint amount) external {
+  function setTotalWP(uint amount) external onlyOwner {
     totalWP = amount;
   }
   
